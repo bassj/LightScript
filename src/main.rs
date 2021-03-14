@@ -1,7 +1,10 @@
-use std::{env, error::Error, fs};
+use std::{env, error::Error, fs, fs::File, io::Write};
 
 mod lex;
 use lex::{Token, TokenStream};
+
+mod emitter;
+use emitter::Emitter;
 
 fn print_usage(command: &str) {
     println!("USAGE: {} source_files", command);
@@ -18,29 +21,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for path in file_paths {
         let src = fs::read_to_string(path)?;
-
-        let tokens = TokenStream::new(&src);
-
-        for tok in tokens {
-            match tok {
-                Token::IntLiteral(value) => {
-                    println!("Integer with value: {}", value);
-                }
-                Token::Operator(op) => {
-                    println!("Operator: {:?}", op);
-                }
-                Token::Word(word) => {
-                    println!("Word: {}", word);
-                }
-                Token::Stop => {
-                    println!("Line Stop: ;");
-                }
-                _ => {
-                    println!("Other Token");
-                }
-            }
-        }
     }
 
+    let emitter = Emitter;
+
+    let mut out = File::create("a.wasm")?;
+    out.write(emitter.emit().as_ref())?;
     Ok(())
 }
