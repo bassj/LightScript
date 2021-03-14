@@ -4,7 +4,7 @@ mod lex;
 use lex::{Token, TokenStream};
 
 mod emitter;
-use emitter::Emitter;
+use emitter::ModuleEmitter;
 
 fn print_usage(command: &str) {
     println!("USAGE: {} source_files", command);
@@ -23,9 +23,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         let src = fs::read_to_string(path)?;
     }
 
-    let emitter = Emitter;
+    let emitter = ModuleEmitter;
+
+    let bincode = emitter.emit();
+
+    println!("{:?}", bincode);
 
     let mut out = File::create("a.wasm")?;
-    out.write(emitter.emit().as_ref())?;
+    out.write(&bincode)?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 # Binaries
 /target
+a.wasm
 
 # Editor configuration
 .vscode

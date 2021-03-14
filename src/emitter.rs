@@ -1,9 +1,6 @@
 use webassembly;
 use webassembly::TypeWasmExt;
 
-
-pub struct ModuleEmitter;
-
 trait Encoded {
     fn encode(&self) -> Vec<u8>;
 }
@@ -47,7 +44,11 @@ struct EncodedFuncBody {
 
 impl Encoded for EncodedFuncBody {
     fn encode(&self) -> Vec<u8> {
-        unimplemented!()
+        let mut encoded: Vec<u8> = Vec::new();
+
+
+
+        encoded
     }
 }
 
@@ -61,6 +62,26 @@ impl Encoded for EncodedLocal {
         unimplemented!()
     }
 }
+
+struct EncodedModule {
+    code_section: Option<EncodedSection>
+}
+
+impl Encoded for EncodedModule {
+    fn encode(&self) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+impl Default for EncodedModule {
+    fn default() -> Self {
+        Self {
+            code_section: None
+        }
+    }
+}
+
+pub struct ModuleEmitter;
 
 impl ModuleEmitter {
     fn encode_vector(&self, vector: Vec<u8>) -> EncodedVec {
@@ -83,34 +104,21 @@ impl ModuleEmitter {
     }
 
     pub fn emit(&self) -> Vec<u8> {
-        let mut prog = webassembly::MAGIC_NUMBER.to_vec();
-        prog.extend_from_slice(webassembly::VERSION_1); // Module header
+        let mut module = EncodedModule::default();
+
+        //let mut prog = webassembly::MAGIC_NUMBER.to_vec();
+        //prog.extend_from_slice(webassembly::VERSION_1); // Module header
 
 
         // We take 2 f32's and return 1, so our locals can just be 3 f32
         let locals = self.encode_local(webassembly::F32, 3);
+        let instructions: Vec<u8> = Vec::new();
+        let add_func = self.encode_function(vec![locals], instructions);
+        let functions = self.encode_vector(add_func.encode());
 
-        let fn_body: Vec<u8> = Vec::new();
+        let code_section = self.encode_section(webassembly::SECTION_CODE, functions);
+        module.code_section = Some(code_section);
 
-        let add_func = self.encode_function(vec![locals], fn_body);
-        
-        
-        //Lets create a basic add function.
-        /*let mut add_func: Vec<u8> = Vec::new();
-
-
-        let mut locals: Vec<u8> = Vec::new();        
-        locals.push
-
-        let mut code: Vec<u8> = Vec::new();
-        code.push(webassembly::END);
-
-
-
-        //Lets export our add function
-        let mut export: Vec<u8> = Vec::new();*/
-        
-
-        prog
+        module.encode()
     }
 }
