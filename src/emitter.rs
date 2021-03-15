@@ -5,99 +5,133 @@ trait Encoded {
     fn encode(&self) -> Vec<u8>;
 }
 
-struct EncodedVec {
-    vector: Vec<u8>
+struct EncodedVec<E: Encoded> {
+    vector: Vec<E>
 }
 
-impl Encoded for EncodedVec {
+impl<E: Encoded> Encoded for EncodedVec<E> {
     fn encode(&self) -> Vec<u8> {
         let len = self.vector.len() as u32;
 
         let mut encoded: Vec<u8> = Vec::new();
 
         encoded.extend_from_slice(&len.to_wasm_bytes());
-        encoded.extend_from_slice(&self.vector);
-
+        
+        for element in self.vector.iter() {
+            encoded.extend_from_slice(&element.encode());
+        }
+        
         encoded
     }
 }
 
 struct EncodedSection {
     section_type: u8,
-    section_content: EncodedVec
+    section_content: Vec<u8>
 }
 
 impl Encoded for EncodedSection {
     fn encode(&self) -> Vec<u8> {
         let mut section: Vec<u8> = Vec::new();
         section.push(self.section_type);
-        let content = self.section_content.encode();
-        section.extend_from_slice(&content);
+        section.extend_from_slice(&self.section_content.len().to_wasm_bytes());
+        section.extend_from_slice(&self.section_content);
         section
     }
 }
 
-struct FuncSection {
-    signature_ids: Vec<u32>
-}
-
-impl Encoded for FuncSection {
-    fn encode(&self) -> Vec<u8> {
-        let mut encoded: Vec<u8> = Vec::new();
-
-        for id in signature_ids {
-            encoded.extend_from_slice(&id.to_wasm_bytes());
-        }
-
-        encoded
-    }
-}
-
-struct EncodedFuncBody {
-    locals: Vec<EncodedLocal>,
+#[derive(Clone)]
+struct CodeBody {
+    locals: Vec<CodeLocal>,
     instructions: Vec<u8>,
 }
 
-impl Encoded for EncodedFuncBody {
+impl Encoded for CodeBody {
     fn encode(&self) -> Vec<u8> {
         let mut encoded: Vec<u8> = Vec::new();
 
+        let locals = EncodedVec {
+            vector: self.locals.to_vec()
+        };
 
+        encoded.extend_from_slice(&locals.encode());
+        encoded.extend_from_slice(self.instructions.as_ref());
 
         encoded
     }
 }
 
-struct EncodedLocal {
+#[derive(Clone, Copy)]
+struct CodeLocal {
     count: usize,
     local_type: u8,
 }
 
-impl Encoded for EncodedLocal {
+impl Encoded for CodeLocal {
     fn encode(&self) -> Vec<u8> {
-        unimplemented!()
+        let mut encoded: Vec<u8> = Vec::new();
+
+        encoded.extend_from_slice(&(self.count as u32).to_wasm_bytes());
+        encoded.push(self.local_type);
+
+        encoded
     }
 }
 
 struct EncodedModule {
     custom_section: Option<EncodedSection>,
-    type_section: Option<EncodedSection>,
+    type_section: Option<TypeSection>,
     import_section: Option<EncodedSection>,
-    function_section: Option<EncodedSection>,
+    function_section: Option<FuncSection>,
     table_section: Option<EncodedSection>,
-    memory_section: Option<EncodedSection>,
+    memory_section: Option<MemSection>,
     global_section: Option<EncodedSection>,
-    export_section: Option<EncodedSection>,
+    export_section: Option<ExportSection>,
     start_section: Option<EncodedSection>,
     element_section: Option<EncodedSection>,
-    code_section: Option<EncodedSection>,
+    code_section: Option<CodeSection>,
     data_section: Option<EncodedSection>,
     data_count_section: Option<EncodedSection>
 }
 
 impl Encoded for EncodedModule {
     fn encode(&self) -> Vec<u8> {
-        unimplemented!()
+        let mut content: Vec<u8> = Vec::new();
+
+        content.extend_from_slice(webassembly::MAGIC_NUMBER);
+        content.extend_from_slice(webassembly::VERSION_1);
+
+        if self.type_section.is_some() {
+            content.extend_from_slice(
+                &self.type_section.as_ref().unwrap().encode()
+            );
+        }
+
+        if self.function_section.is_some() {
+            content.extend_from_slice(
+                &self.function_section.as_ref().unwrap().encode()
+            );
+        }
+
+        if self.memory_section.is_some() {
+            content.extend_from_slice(
+                &self.memory_section.as_ref().unwrap().encode()
+            );
+        }
+
+        if self.export_section.is_some() {
+            content.extend_from_slice(
+                &self.export_section.as_ref().unwrap().encode()
+            );
+        }
+
+        if self.code_section.is_some() {
+            content.extend_from_slice(
+                &self.code_section.as_ref().unwrap().encode()
+            );
+        }
+
+        content
     }
 }
 
@@ -121,47 +155,278 @@ impl Default for EncodedModule {
     }
 }
 
+#[derive(Clone)]
+struct TypeSignature {
+    type_sig: u8,
+    inputs: Option<Vec<TypeSignature>>,
+    outputs: Option<Vec<TypeSignature>>,
+    min: Option<u32>,
+    max: Option<u32>,
+}
+
+impl Default for TypeSignature {
+    fn default() -> Self {
+        Self {
+            type_sig: 0,
+            inputs: None,
+            outputs: None,
+            min: None,
+            max: None,
+        }
+    }
+}
+
+impl Encoded for TypeSignature {
+    fn encode(&self) -> Vec<u8> {
+        let mut content: Vec<u8> = Vec::new();
+        content.push(self.type_sig);
+
+        match self.type_sig {
+            webassembly::FUNC => {
+                //We're encoding a function type.
+                let inputs = self.inputs.as_ref().unwrap();
+                let outputs = self.outputs.as_ref().unwrap();
+
+                let encoded_inputs = EncodedVec {
+                    vector: inputs.to_vec()
+                };
+
+                content.extend_from_slice(&encoded_inputs.encode());
+
+                let encoded_outputs = EncodedVec {
+                    vector: outputs.to_vec()
+                };
+
+                content.extend_from_slice(&encoded_outputs.encode());
+                
+                content
+            },
+            webassembly::LIMIT_MIN_MAX => {
+                let min: u32 = self.min.unwrap();
+                let max: u32 = self.max.unwrap();
+
+                content.extend_from_slice(&min.to_wasm_bytes());
+                content.extend_from_slice(&max.to_wasm_bytes());
+
+                content
+            },
+            _ => {
+                content
+            }
+        }
+    }
+}
+
+struct TypeSection {
+    signatures: Vec<TypeSignature>,
+}
+
+impl Encoded for TypeSection {
+    fn encode(&self) -> Vec<u8> {
+        let content: Vec<TypeSignature> = self.signatures[..].to_vec();
+
+        let encoded_section = EncodedSection {
+            section_type: webassembly::SECTION_TYPE,
+            section_content: EncodedVec {
+                vector: content
+            }.encode()
+        };
+
+        encoded_section.encode()
+    }
+}
+
+struct FuncSection {
+    signature_ids: Vec<u32>
+}
+
+impl Encoded for FuncSection {
+    fn encode(&self) -> Vec<u8> {
+        let mut encoded_ids: Vec<u8> = Vec::new();
+
+        for id in self.signature_ids.iter() {
+            encoded_ids.extend_from_slice(&id.to_wasm_bytes());
+        }
+
+        let encoded_section = EncodedSection {
+            section_type: webassembly::SECTION_FUNCTION,
+            section_content: encoded_ids,
+        };
+
+        encoded_section.encode()
+    }
+}
+
+struct MemSection {
+    blocks: Vec<TypeSignature>,
+}
+
+impl Encoded for MemSection {
+    fn encode(&self) -> Vec<u8> {
+        let blocks = self.blocks.to_vec();
+
+        EncodedSection {
+            section_type: webassembly::SECTION_MEMORY,
+            section_content: EncodedVec {
+                vector: blocks
+            }.encode()
+        }.encode()
+    } 
+}
+
+#[derive(Clone)]
+struct ExportSignature {
+    name: String,
+    sig_type: u8,
+    index: u32,
+}
+
+impl Encoded for ExportSignature {
+    fn encode(&self) -> Vec<u8> {
+        let mut encoded: Vec<u8> = Vec::new();
+        
+        encoded.extend_from_slice(&self.name.as_bytes());
+        encoded.push(self.sig_type);
+        encoded.extend_from_slice(&self.index.to_wasm_bytes());
+
+        encoded
+    }
+}
+
+struct ExportSection {
+    exports: Vec<ExportSignature>
+}
+
+impl Encoded for ExportSection {
+    fn encode(&self) -> Vec<u8> {
+        EncodedSection {
+            section_type: webassembly::SECTION_EXPORT,
+            section_content: EncodedVec {
+                vector: self.exports.to_vec()
+            }.encode()
+        }.encode()
+    }
+}
+
+struct CodeSection {
+    blocks: Vec<CodeBody>
+}
+
+impl Encoded for CodeSection {
+    fn encode(&self) -> Vec<u8> {
+        let mut content = Vec::new();
+
+        let code_content = EncodedVec {
+            vector: self.blocks.to_vec()
+        }.encode();
+
+        content.extend_from_slice(&code_content.len().to_wasm_bytes());
+        content.extend_from_slice(&code_content);
+
+        EncodedSection {
+            section_type: webassembly::SECTION_CODE,
+            section_content: content
+        }.encode()
+    }
+}
+
 pub struct ModuleEmitter;
 
 impl ModuleEmitter {
-    fn encode_vector(&self, vector: Vec<u8>) -> EncodedVec {
-        EncodedVec { vector }
-    }
-    
-    fn encode_section(&self, section_type: u8, section_content: EncodedVec ) -> EncodedSection {
-        EncodedSection { section_type, section_content }
-    }
-
-    fn encode_function(&self, locals: Vec<EncodedLocal>, instructions: Vec<u8>) -> EncodedFuncBody {
-        EncodedFuncBody {
-            locals,
-            instructions
-        }
-    }
-
-    fn encode_local(&self, local_type: u8, count: usize) -> EncodedLocal {
-        EncodedLocal { count, local_type }
-    }
-
     pub fn emit(&self) -> Vec<u8> {
         let mut module = EncodedModule::default();
         // For right now we're just gonna build a simple module that exports a add function that accepts 2 f32's and returns 1 f32
         
         // Lets build the func section.
         let func_section = FuncSection {
+            signature_ids: vec![0] // Our add function will be the only function, so just pick the first signature.
+        };
 
-        }
+        module.function_section = Some(func_section);
+
+        // Lets build the type section.
+        let type_section = TypeSection {
+            signatures: vec![
+                TypeSignature {
+                    type_sig: webassembly::FUNC,
+                    inputs: Some(vec![
+                        TypeSignature {
+                            type_sig: webassembly::F32,
+                            .. TypeSignature::default()
+                        }
+                    ]),
+                    outputs: Some(vec![
+                        TypeSignature {
+                            type_sig: webassembly::F32,
+                            .. TypeSignature::default()
+                        }
+                    ]),
+                    .. TypeSignature::default()
+                }
+            ]
+        };
+
+        module.type_section = Some(type_section);
+
+        //Lets build ourselves a memory section.
+        let mem_section = MemSection {
+            blocks: vec![
+                TypeSignature {
+                    type_sig: webassembly::LIMIT_MIN_MAX,
+                    min: Some(2), // Allocate between 2 Ki and 5 Ki
+                    max: Some(10),
+                    .. TypeSignature::default()
+                }
+            ]
+        };
+
+        module.memory_section = Some(mem_section);
+
+
+        // Define our exports.
+
+        let export_section = ExportSection {
+            exports: vec![
+                ExportSignature {
+                    name: "memory".to_string(),
+                    sig_type: webassembly::DESC_MEMORY,
+                    index: 0
+                },
+                ExportSignature {
+                    name: "add".to_string(),
+                    sig_type: webassembly::DESC_FUNCTION,
+                    index: 0
+                }
+            ]
+        };
+
+        module.export_section = Some(export_section);
+
+        let code_section = CodeSection {
+            blocks: vec![
+                CodeBody {
+                    locals: vec![],
+                    instructions: vec![
+                        webassembly::LOCAL_GET, 0,
+                        webassembly::LOCAL_GET, 1,
+                        webassembly::F32_ADD,
+                    ]
+                }
+            ]
+        };
+
+        module.code_section = Some(code_section);
 
         // Lets build the code section. This is the actual implmentation of our add function.
         // We take 2 f32's and return 1, so our locals can just be 3 f32
-        let locals = self.encode_local(webassembly::F32, 3);
+        /*let locals = self.encode_local(webassembly::F32, 3);
         let instructions: Vec<u8> = Vec::new();
         let add_func = self.encode_function(vec![locals], instructions);
 
 
         let func_vec = self.encode_vector(add_func.encode());
         let code_section = self.encode_section(webassembly::SECTION_CODE, func_vec);
-        module.code_section = Some(code_section);
+        module.code_section = Some(code_section);*/
 
         module.encode()
     }

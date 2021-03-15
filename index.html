@@ -1,0 +1,11 @@
+
+<script>
+    fetch("a.wasm")
+      .then(response => response.arrayBuffer())
+      .then(bytes => {
+        return WebAssembly.instantiate(bytes);
+      })
+      .then(results => {
+        console.log(results.instance.exports.add(2, 3));
+      });
+  </script>
