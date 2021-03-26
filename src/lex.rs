@@ -4,7 +4,7 @@ use std::fmt;
 #[derive(Debug, Clone)]
 pub struct LexError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Operator {
     Add(String),
     Subtract(String),
@@ -26,11 +26,27 @@ impl Operator {
     }
 }
 
+#[derive(Debug)]
 pub enum Token {
     IntLiteral(i32),
     Word(String),
     Operator(Operator),
-    Stop,
+    Stop, // Semicolon
+    OpenParen,
+    CloseParen,
+    OpenBracket,
+    CloseBracket,
+    OpenBrace,
+    CloseBrace,
+}
+
+impl Token {
+    pub fn is_int_literal(&self) -> bool {
+        match self {
+            Token::IntLiteral(_) => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct TokenStream<'c> {
@@ -152,6 +168,48 @@ impl<'c> TakeWord for TokenStream<'c> {
     }
 }
 
+trait TakePunctuation {
+    fn take_punctuation(&mut self) -> Option<Token>;
+}
+
+impl<'c> TakePunctuation for TokenStream<'c> {
+    fn take_punctuation(&mut self) -> Option<Token> {
+        let mut raw_val = self.src[self.index..]
+            .char_indices()
+            .skip_while(|(_, c)| c.is_whitespace());
+
+        let (i, c) = raw_val.next()?;
+
+        match c {
+            '(' => {
+                self.index += i + 1;
+                Some(Token::OpenParen)
+            }
+            ')' => {
+                self.index += i + 1;
+                Some(Token::CloseParen)
+            }
+            '[' => {
+                self.index += i + 1;
+                Some(Token::OpenBracket)
+            }
+            ']' => {
+                self.index += i + 1;
+                Some(Token::CloseBracket)
+            }
+            '{' => {
+                self.index += i + 1;
+                Some(Token::OpenBrace)
+            }
+            '}' => {
+                self.index += i + 1;
+                Some(Token::CloseBrace)
+            }
+            _ => None,
+        }
+    }
+}
+
 impl<'c> Iterator for TokenStream<'c> {
     type Item = Token;
 
@@ -180,6 +238,12 @@ impl<'c> Iterator for TokenStream<'c> {
 
         // Lex words.
         let tok = self.take_word();
+        if tok.is_some() {
+            return tok;
+        }
+
+        // Lex punctuation
+        let tok = self.take_punctuation();
         if tok.is_some() {
             return tok;
         }
